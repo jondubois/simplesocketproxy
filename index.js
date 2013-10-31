@@ -55,6 +55,7 @@ SimpleSocketProxy.prototype.proxy = function (req, sourceSocket, dest) {
 		sourceSocket.removeListener('end', onEnd);
 		sourceSocket.removeListener('close', onClose);
 		self._errorDomain.remove(sourceSocket);
+		receiver.destroy();
 	});
 	
 	var target = {};
@@ -86,8 +87,13 @@ SimpleSocketProxy.prototype.proxy = function (req, sourceSocket, dest) {
 	}
 
 	var targetRequest = this._proto.request(target);
+	targetRequest.on('error', function (err) {
+		self._errorDomain.emit('error', err);
+		targetRequest.abort();
+		sourceSocket.destroy();
+	});
 	targetRequest.end();
-	
+		
 	targetRequest.on('upgrade', function (targetResponse, targetSocket, targetHead) {
 		self._errorDomain.add(targetSocket);
 		targetSocket.setTimeout(0);
@@ -105,14 +111,7 @@ SimpleSocketProxy.prototype.proxy = function (req, sourceSocket, dest) {
 		}
 		sourceSocket.write(headers.concat(['', '']).join("\r\n"));
 		
-		receiver.consume({
-			write: function (data, encoding) {
-				targetSocket.write.apply(targetSocket, arguments);
-			},
-			end: function (data, encoding) {
-				targetSocket.end.apply(targetSocket, arguments);
-			}
-		});
+		receiver.consume(targetSocket);
 		
 		targetSocket.on('data', onData = function (data, encoding) {
 			sourceSocket.write.apply(sourceSocket, arguments);
@@ -125,6 +124,7 @@ SimpleSocketProxy.prototype.proxy = function (req, sourceSocket, dest) {
 			targetSocket.removeListener('end', onEnd);
 			targetSocket.removeListener('close', onClose);
 			self._errorDomain.remove(targetSocket);
+			sourceSocket.destroy();
 		});
 	});
 };
